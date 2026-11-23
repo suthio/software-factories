@@ -50,8 +50,10 @@ def process_ticket(state, path):
     current = (state / "current").resolve(strict=True)
     manifest = json.loads((current / "manifest.json").read_text(encoding="utf-8"))
     receipt = state / "results" / path.name
-    if ticket_id in manifest["tickets"] or receipt.exists():
-        return
+    if ticket_id in manifest["tickets"]:
+        return "passed"
+    if receipt.exists():
+        return json.loads(receipt.read_text(encoding="utf-8"))["status"]
 
     work = Path(tempfile.mkdtemp(prefix="ticket-", dir=state / "runs"))
     report = {"ticket": ticket_id, "base": str(current.relative_to(state)),
@@ -96,13 +98,15 @@ def process_ticket(state, path):
     save_report(pending, report)
     pending.replace(receipt)
     print(f"{ticket_id}: {report['status']}（{work}）", flush=True)
+    return report["status"]
 
 
 def main():
-    parser = argparse.ArgumentParser(description="ローカルのチケットを処理するTODO工場")
+    parser = argparse.ArgumentParser(description="チケットを読んでTODOアプリを更新する")
     parser.add_argument("state", type=Path)
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--init", type=Path, metavar="APP_PY")
+    mode.add_argument("--ticket", type=Path, metavar="JSON", help="指定したチケット1枚だけを処理する")
     mode.add_argument("--once", action="store_true", help="現在のキューを1回確認する")
     mode.add_argument("--watch", action="store_true", help="チケットを5秒ごとに確認する")
     args = parser.parse_args()
@@ -116,10 +120,13 @@ def main():
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             if args.init is not None:
                 initialize(state, args.init.resolve())
-                print(f"初期版: {state / 'current/app.py'}")
+                print(f"初期アプリ: {state / 'current/app.py'}")
                 return 0
             if not (state / "current/app.py").is_file():
-                raise ValueError("先に --init で合格済み app.py を登録してください。")
+                raise ValueError("先に --init で app.py を登録してください。")
+            if args.ticket is not None:
+                status = process_ticket(state, args.ticket)
+                return {"passed": 0, "rejected": 1}.get(status, 2)
             while True:
                 for path in sorted((state / "inbox").glob("*.json")):
                     process_ticket(state, path)

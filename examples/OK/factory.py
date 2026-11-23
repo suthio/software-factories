@@ -1,4 +1,6 @@
 import argparse
+import json
+import os
 import shutil
 import subprocess
 import sys
@@ -30,6 +32,11 @@ def run_factory(example_dir, output_dir, brief_path, *, check_args=()):
     if codex is None:
         print("PATH に Codex CLI が見つかりません。", file=sys.stderr)
         return 2
+    overrides = []
+    if model := os.environ.get("SOFTWARE_FACTORY_CODEX_MODEL"):
+        overrides.extend(["--model", model])
+    if effort := os.environ.get("SOFTWARE_FACTORY_CODEX_EFFORT"):
+        overrides.extend(["-c", f"model_reasoning_effort={json.dumps(effort)}"])
 
     spec_path = example_dir / "spec.md"
     checker = example_dir / "check.py"
@@ -55,7 +62,7 @@ def run_factory(example_dir, output_dir, brief_path, *, check_args=()):
             generation = subprocess.run(
                 [
                     codex, "-a", "never", "exec", "--skip-git-repo-check",
-                    "--sandbox", "workspace-write", "-",
+                    "--sandbox", "workspace-write", *overrides, "-",
                 ],
                 cwd=output_dir,
                 input=prompt,
